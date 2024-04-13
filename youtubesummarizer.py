@@ -46,7 +46,7 @@ def detect_major_frames(video_path, subject):
                 if is_attractive_frame(frame, colorfulness_threshold):
                     handle_attractive_frame(frame, current_scene, attractive_frames, phash_dict, phash_threshold)
         cap.release()
-        save_frames(subject, major_scenes, attractive_frames)
+        return save_frames(subject, major_scenes, attractive_frames)
     else:
         print(f"Error: Unable to open video file {video_path}")
 
@@ -95,12 +95,18 @@ def is_black_frame(frame, threshold):
 def save_frames(subject, major_scenes, attractive_frames):
     """ Saves key frames identified from major scenes and attractive frames to disk. """
     reader = easyocr.Reader(['en'])  # Initialize the OCR reader
+    all_texts = []
+    image_paths = []
     for scene, frame in {**major_scenes, **attractive_frames}.items():
         key_frame_path = f'{subject}_scene_{scene}.jpg'
         cv2.imwrite(key_frame_path, frame)
         text = perform_ocr_and_watermark(key_frame_path, reader, "Noya Arav")
         print(f"Text in scene {scene}: {text}")
-        
+        all_texts.append(text)
+        image_paths.append(key_frame_path)
+    display_gif(image_paths, all_texts, subject)  # Call display_gif after frames are saved and processed
+
+
         
 def perform_ocr_and_watermark(image_path, reader, watermark_text):
     """ Performs OCR on an image and adds a watermark. """
@@ -120,25 +126,66 @@ def perform_ocr_and_watermark(image_path, reader, watermark_text):
     return text
 
 
+def display_gif(image_paths, extracted_texts, subject):
+    """ Create and display an animated GIF from saved images, and print concatenated texts. """
+    print("Creating an animated GIF with all the frames:")
+    if image_paths:
+        num_frames = len(image_paths)
+        duration = min(10000 // num_frames, 1000)  # Maximum 1 second per frame
+        gif_path = f"{subject}_summary.gif"
+        create_gif(image_paths, gif_path, duration)
+
+        # Open the GIF file
+        gif_image = Image.open(gif_path)
+
+        # Display the GIF
+        gif_image.show()
+
+        # Print the concatenated text from all frames
+        all_text = "\n".join(extracted_texts)
+        print("Concatenated text from all frames:")
+        print(all_text)
+    else:
+        print("No images found to create the summary.")
+
+def create_gif(image_paths, gif_path, duration):
+    frames = [Image.open(x).convert("P", palette=Image.ADAPTIVE, colors=256) for x in image_paths]
+    frames[0].save(gif_path, save_all=True, append_images=frames[1:], optimize=False, duration=duration, loop=0)
+
+
+    
+
 def search_and_download(subject):
     """ Searches for and downloads a video from YouTube based on a subject query. """
     search_results = Search(subject).results
+
+    downloaded_count = 0
+
     for video in search_results:
-        if video.length < 600:
+        if video.length < 600:  # Check if video duration is less than 10 minutes
+            print(f"Downloading video: {video.title}")
             try:
+                # Download the video
                 youtube = YouTube(video.watch_url)
                 video_stream = youtube.streams.get_highest_resolution()
-                video_path = f"{subject}_video.mp4"
+                video_path = f"{subject}_1.mp4"  # Naming convention for the first video
                 video_stream.download(filename=video_path)
+                print("Video downloaded successfully!")
+                
+                # Detect major frames in the downloaded video
+                print("start detect ‘scenes’")
                 detect_major_frames(video_path, subject)
-                break
+                print("detect ‘scenes’ finish successfully!")
+                downloaded_count += 1
+                break  # Stop processing after downloading the first suitable video
             except AgeRestrictedError:
-                print("Video is age-restricted and cannot be downloaded.")
+                print("Video is age-restricted and cannot be downloaded. Skipping...")
             except Exception as e:
-                print(f"Error downloading video: {e}")
-                continue
-        else:
-            print("No suitable video found under 10 minutes.")
+                print(f"An error occurred while downloading video: {str(e)}")
+
+    if downloaded_count == 0:
+        print("No videos found less than 10 minutes.")
+
 
 def main():
     """ Main function to handle user input and process videos. """
