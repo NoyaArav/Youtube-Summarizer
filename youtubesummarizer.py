@@ -94,7 +94,6 @@ def is_black_frame(frame, threshold):
 
 def save_frames(subject, major_scenes, attractive_frames):
     """ Saves key frames identified from major scenes and attractive frames to disk. """
-    """ Saves key frames identified from major scenes and attractive frames to disk, performs OCR, and adds watermarks. """
     reader = easyocr.Reader(['en'])  # Initialize the OCR reader
     for scene, frame in {**major_scenes, **attractive_frames}.items():
         key_frame_path = f'{subject}_scene_{scene}.jpg'
