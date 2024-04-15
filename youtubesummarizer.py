@@ -28,6 +28,7 @@ def detect_major_frames(video_path, subject):
     phash_dict = {}
 
     if cap.isOpened():
+        frame_skip = 0
         frame_num = 0
         current_scene = 0
         scene_start_frame = 0
@@ -37,18 +38,52 @@ def detect_major_frames(video_path, subject):
             if not ret:
                 break
             frame_num += 1
-            if frame_num % 10 == 0:  # Process every 10 frames
+            frame_skip += 1
+            if frame_skip % 10 == 0:
+                # Detect content changes in the frame
                 scene_list = detector.process_frame(frame_num, frame)
+
+                # If a scene change is detected, save the middle frame of the previous scene
                 if scene_list:
-                    handle_scene_change(frame_num, cap, current_scene, scene_start_frame, major_scenes, phash_dict, black_threshold, phash_threshold)
+                    if current_scene > 0:
+                        scene_end_frame = frame_num - 1
+                        scene_middle_frame = (scene_start_frame + scene_end_frame) // 2
+                        cap.set(cv2.CAP_PROP_POS_FRAMES, scene_middle_frame)
+                        _, middle_frame = cap.read()
+                        if not is_black_frame(middle_frame, black_threshold):
+                            phash = imagehash.phash(Image.fromarray(middle_frame))
+                            if current_scene not in phash_dict or not is_similar_phash(phash, phash_dict[current_scene], phash_threshold):
+                                major_scenes[current_scene] = middle_frame
+                                phash_dict[current_scene] = phash
                     current_scene += 1
                     scene_start_frame = frame_num
+
+                # Check for attractiveness of the frame
                 if is_attractive_frame(frame, colorfulness_threshold):
-                    handle_attractive_frame(frame, current_scene, attractive_frames, phash_dict, phash_threshold)
+                    phash = imagehash.phash(Image.fromarray(frame))
+                    if current_scene not in attractive_frames or not is_similar_phash(phash, phash_dict[current_scene], phash_threshold):
+                        attractive_frames[current_scene] = frame
+                        phash_dict[current_scene] = phash
+
+        # Release the VideoCapture object
         cap.release()
-        return save_frames(subject, major_scenes, attractive_frames)
+
+        # Save key frames for major scenes (middle frames) and attractive frames from each scene
+        for scene, frame in major_scenes.items():
+            if scene not in attractive_frames:
+                key_frame_path = f'{subject}_major_scene_{scene}.jpg'
+                cv2.imwrite(key_frame_path, frame)
+                # print(f'Saved key frame for major scene {scene} of {subject}')
+
+        for scene, frame in attractive_frames.items():
+            key_frame_path = f'{subject}_attractive_frame_{scene}.jpg'
+            cv2.imwrite(key_frame_path, frame)
+            # print(f'Saved attractive frame for scene {scene} of {subject}')
     else:
         print(f"Error: Unable to open video file {video_path}")
+    
+
+
 
 def handle_scene_change(frame_num, cap, current_scene, scene_start_frame, major_scenes, phash_dict, black_threshold, phash_threshold):
     """ Handles the detection of scene changes and saves the major frames. """
@@ -92,19 +127,19 @@ def is_black_frame(frame, threshold):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     return np.mean(gray) < threshold
 
-def save_frames(subject, major_scenes, attractive_frames):
-    """ Saves key frames identified from major scenes and attractive frames to disk. """
-    reader = easyocr.Reader(['en'])  # Initialize the OCR reader
-    all_texts = []
-    image_paths = []
-    for scene, frame in {**major_scenes, **attractive_frames}.items():
-        key_frame_path = f'{subject}_scene_{scene}.jpg'
-        cv2.imwrite(key_frame_path, frame)
-        text = perform_ocr_and_watermark(key_frame_path, reader, "Noya Arav")
-        print(f"Text in scene {scene}: {text}")
-        all_texts.append(text)
-        image_paths.append(key_frame_path)
-    display_gif(image_paths, all_texts, subject)  # Call display_gif after frames are saved and processed
+# def save_frames(subject, major_scenes, attractive_frames):
+#     """ Saves key frames identified from major scenes and attractive frames to disk. """
+#     reader = easyocr.Reader(['en'])  # Initialize the OCR reader
+#     all_texts = []
+#     image_paths = []
+#     for scene, frame in {**major_scenes, **attractive_frames}.items():
+#         key_frame_path = f'{subject}_scene_{scene}.jpg'
+#         # cv2.imwrite(key_frame_path, frame)
+#         text = perform_ocr_and_watermark(key_frame_path, reader, "Noya Arav")
+#         print(f"Text in scene {scene}: {text}")
+#         all_texts.append(text)
+#         image_paths.append(key_frame_path)
+#     display_gif(image_paths, all_texts, subject)  # Call display_gif after frames are saved and processed
 
 
         
@@ -162,7 +197,7 @@ def search_and_download(subject):
     downloaded_count = 0
 
     for video in search_results:
-        if video.length < 600:  # Check if video duration is less than 10 minutes
+        if video.length < 120:  # Check if video duration is less than 10 minutes
             print(f"Downloading video: {video.title}")
             try:
                 # Download the video
@@ -191,6 +226,25 @@ def main():
     """ Main function to handle user input and process videos. """
     subject = input("Enter a subject to search on YouTube: ").strip()
     search_and_download(subject)
+    
+    image_directory = "."  # Current directory
+    reader = easyocr.Reader(['en'])  # Initialize the OCR reader
+    all_texts = []
+    image_paths = []
+    for filename in os.listdir(image_directory):
+        if filename.endswith(".jpg") or filename.endswith(".png"):
+            image_path = os.path.join(image_directory, filename)
+            image_paths.append(image_path)
+            
+            
+            # key_frame_path = f'{subject}_scene_{filename}.jpg'
+            # cv2.imwrite(key_frame_path, frame)
+            text = perform_ocr_and_watermark(image_path, reader, "Noya Arav")
+            print(f"Text in scene {filename}: {text}")
+            all_texts.append(text)
+            image_paths.append(image_path)
+    display_gif(image_paths, all_texts, subject)  # Call display_gif after frames are saved and processed
+    print(all_texts)
 
 if __name__ == '__main__':
     main()
